@@ -33,6 +33,13 @@ xset s noblank
 xset s off
 xset -dpms
 
+# Reset any chromium errors.
+sed -i 's/"exited_cleanly":false/"exited_cleanly":true/' /home/pi/.config/chromium/Default/Preferences
+sed -i 's/"exit_type":"Crashed"/"exit_type":"Normal"/' /home/pi/.config/chromium/Default/Preferences
+
+# Hide cursor.
+unclutter -idle 0.5 -root &
+
 # Find a config file and directory.
 find_setup () {
 	MEDIA_CONFIG="/kiosk/config.ini"
@@ -110,7 +117,6 @@ do
 		if [[ "$ACTION" == "slideshow" ]]; then
 			runuser $DEFAULT_USER -c "feh --quiet --auto-zoom --randomize --recursive --fullscreen --slideshow-delay $TIMER --hide-pointer --auto-rotate $MEDIA_DRIVE"
 		elif [[ "$ACTION" == "browser" ]] || [[ -n "$URL" ]]; then
-			unclutter -idle 0
 			runuser $DEFAULT_USER -c "chromium-browser --noerrdialogs --disable-infobars --kiosk $URL"
 		fi
 
