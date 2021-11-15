@@ -33,33 +33,49 @@ xset s noblank
 xset s off
 xset -dpms
 
-# Reset any chromium errors.
-sed -i 's/"exited_cleanly":false/"exited_cleanly":true/' /home/pi/.config/chromium/Default/Preferences
-sed -i 's/"exit_type":"Crashed"/"exit_type":"Normal"/' /home/pi/.config/chromium/Default/Preferences
-
-# Hide cursor.
-unclutter -idle 0.5 -root &
+# Initialize variables.
+VERBOSE="1"
+ONDIE="restart"
+MEDIA_CONFIG=""
+MEDIA_DRIVE=""
 
 # Find a config file and directory.
-find_setup () {
-	MEDIA_CONFIG="/kiosk/config.ini"
-	MEDIA_DRIVE="/kiosk/"
+get_setup () {
 
-	for MEDIA_DRIVE in /media/pi/*/
+	# Reset any chromium errors.
+	sed -i 's/"exited_cleanly":false/"exited_cleanly":true/' /home/pi/.config/chromium/Default/Preferences
+	sed -i 's/"exit_type":"Crashed"/"exit_type":"Normal"/' /home/pi/.config/chromium/Default/Preferences
+
+	NEW_CONFIG="/kiosk/config.ini"
+	NEW_DRIVE="/kiosk/"
+
+	for DRIVE in /media/pi/*
 	do
-		for FILE in $MEDIA_DRIVE*
+		for FILE in $DRIVE/*
 		do
 			if [[ "${FILE##*/}" == "config.ini" ]]; then
-				MEDIA_CONFIG="$FILE"
+				NEW_CONFIG="$FILE"
+				NEW_DRIVE="$DRIVE"
 				break;
 			fi
 		done
-		if [[ "$MEDIA_CONFIG" != "/kiosk/config.ini" ]]; then
-			break;
-		fi
 	done
 
+	if [[ "$NEW_CONFIG" == "$MEDIA_CONFIG" && "$NEW_DRIVE" == "$MEDIA_DRIVE" ]]; then
+		return
+	else
+		MEDIA_CONFIG="$NEW_CONFIG"
+		MEDIA_DRIVE="$NEW_DRIVE"
+	fi
+
+	# Kill all existing child processes.
+	pkill -P $$
+
+	# Hide cursor.
+	unclutter -idle 0.5 -root 2>/dev/null &
+
 	# Parse config file for options.
+	QUIET=$(awk -F "=" '/quiet/ {print tolower($2)}' "$MEDIA_CONFIG" | tr -d ' \t\n\r')
 	ACTION=$(awk -F "=" '/action/ {print tolower($2)}' "$MEDIA_CONFIG" | tr -d ' \t\n\r')
 	TIMER=$(awk -F "=" '/timer/ {print $2}' "$MEDIA_CONFIG" | tr -d ' \t\n\r')
 	URL=$(awk -F "=" '/url/ {print $2}' "$MEDIA_CONFIG" | tr -d ' \t\n\r')
@@ -69,16 +85,30 @@ find_setup () {
 	PASSWORD=$(awk -F "=" '/password/ {print $2}' "$MEDIA_CONFIG" | tr -d ' \t\n\r')
 
 	# Set defaults
-	if [[ -z "$ACTION" ]]; then ACTION="slideshow"; fi
+	if [[ -z "$QUIET" ]]; then QUIET="0"; fi
+	if [[ -z "$ACTION" ]]; then ACTION="none"; fi
 	if [[ -z "$TIMER" ]]; then TIMER=300; fi
 	if [[ -z "$ONDIE" ]]; then ONDIE="restart"; fi
 	if [[ -z "$REPOLL" ]]; then REPOLL=10; fi
+
+	if [[ "$QUIET" == "1" ]]; then VERBOSE=""; fi
+	if [[ ! -z "$VERBOSE" ]]; then
+		echo "Config found: $MEDIA_CONFIG"
+		echo "Config drive: $MEDIA_DRIVE"
+		echo "Config action: $ACTION"
+		echo "Config timer: $TIMER"
+		echo "Config URL: $URL"
+		echo "Config repoll: $REPOLL"
+		echo "Config SSID: $SSID"
+	fi
 
 	# Check to see if the wifi settings need updating.
 	if [[ -f "$SUPPLICANT_CONF" ]]; then
 		OLD_SSID=$(awk -F "=" '/ssid/ {print $2}' "$SUPPLICANT_CONF" | tr -d '1' | tr -d ' \t\n\r' | tr -d "\"" )
 		if [[ "$OLD_SSID" == "$SSID" ]]; then
 			return
+		elif [[ ! -z "$VERBOSE" ]]; then
+			echo "WiFi reconfiguring..."
 		fi
 	fi
 
@@ -102,26 +132,35 @@ find_setup () {
 
 	# Force reload of wifi settings.
 	wpa_cli -i wlan0 reconfigure
+
+	if [[ ! -z "$VERBOSE" ]]; then
+		echo "WiFi reconfigure complete."
+	fi
 }
 
-ONDIE="restart"
 while [[ "$ONDIE" == "restart" ]]
 do
-	find_setup
+	get_setup
 
-	# If it's the default config file, sleep until we get a valid config file from an inserted drive.
-	if [[ "$MEDIA_CONFIG" == "/kiosk/config.ini" ]]; then
-		sleep $REPOLL
-	else
-		# Display the requested function.
-		if [[ "$ACTION" == "slideshow" ]]; then
-			runuser $DEFAULT_USER -c "feh --quiet --auto-zoom --randomize --recursive --fullscreen --slideshow-delay $TIMER --hide-pointer --auto-rotate $MEDIA_DRIVE"
-		elif [[ "$ACTION" == "browser" ]] || [[ -n "$URL" ]]; then
-			runuser $DEFAULT_USER -c "chromium-browser --noerrdialogs --disable-infobars --kiosk $URL"
+	# Display the requested function.
+	if [[ "$ACTION" == "slideshow" ]]; then
+		if [[ ! -z "$VERBOSE" ]]; then
+			echo "Starting feh."
 		fi
-
-		# If the drive was forcibly umounted, click to dismiss the warning message.
-		xdotool mousemove 0 100 click 1
+		runuser $DEFAULT_USER -c "feh --quiet --auto-zoom --randomize --recursive --fullscreen --slideshow-delay $TIMER --hide-pointer --auto-rotate $MEDIA_DRIVE" &
+		ACTION="started"
+	elif [[ "$ACTION" == "browser" ]]; then
+		if [[ ! -z "$VERBOSE" ]]; then
+			echo "Starting chromium-browser."
+		fi
+		runuser $DEFAULT_USER -c "chromium-browser --noerrdialogs --disable-infobars --kiosk $URL" &
+		ACTION="started"
 	fi
-done
 
+	if [[ ! -z "$VERBOSE" ]]; then
+		echo "Sleeping $REPOLL seconds."
+	fi
+
+	sleep $REPOLL
+
+done
