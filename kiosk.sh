@@ -83,6 +83,7 @@ get_setup () {
 	REPOLL=$(awk -F "=" '/repoll/ {print $2}' "$MEDIA_CONFIG" | tr -d ' \t\n\r')
 	SSID=$(awk -F "=" '/ssid/ {print $2}' "$MEDIA_CONFIG" | tr -d ' \t\n\r')
 	PASSWORD=$(awk -F "=" '/password/ {print $2}' "$MEDIA_CONFIG" | tr -d ' \t\n\r')
+	WPA_CONF=$(awk -F "=" '/wpa_conf/ {print $2}' "$MEDIA_CONFIG" | tr -d ' \t\n\r')
 
 	# Set defaults
 	if [[ -z "$QUIET" ]]; then QUIET="0"; fi
@@ -108,34 +109,40 @@ get_setup () {
 		if [[ "$OLD_SSID" == "$SSID" ]]; then
 			return
 		elif [[ ! -z "$VERBOSE" ]]; then
-			echo "WiFi reconfiguring..."
+			echo -n "WiFi reconfiguring..."
 		fi
 	fi
 
-	# Reset wifi settings to default.
-	echo "ctrl_interface=DIR=/var/run/wpa_supplicant GROUP=netdev" >  "$SUPPLICANT_CONF"
-	echo "update_config=1" >> "$SUPPLICANT_CONF"
-	echo "country=US" >> "$SUPPLICANT_CONF"
+	if [[ -z "$WPA_CONF" ]]; then
+		# Reset wifi settings to default.
+		echo "ctrl_interface=DIR=/var/run/wpa_supplicant GROUP=netdev" > "$SUPPLICANT_CONF"
+		echo "update_config=1" >> "$SUPPLICANT_CONF"
+		echo "country=US" >> "$SUPPLICANT_CONF"
 
-	# Update wifi settings (if provided).
-	if [[ -n "$SSID" ]]; then
-		echo "network={" >> "$SUPPLICANT_CONF"
-		echo "	ssid=\"$SSID\"" >> "$SUPPLICANT_CONF"
-		echo "	scan_ssid=1" >> "$SUPPLICANT_CONF"
+		# Update wifi settings (if provided).
 		if [[ -n "$SSID" ]]; then
-			echo "	psk=\"$PASSWORD\"" >> "$SUPPLICANT_CONF"
-		else
-			echo "	key_mgmt=NONE" >> "$SUPPLICANT_CONF"
+			echo "network={" >> "$SUPPLICANT_CONF"
+			echo "	ssid=\"$SSID\"" >> "$SUPPLICANT_CONF"
+			echo "	scan_ssid=1" >> "$SUPPLICANT_CONF"
+			if [[ -n "$PASSWORD" ]]; then
+				echo "	psk=\"$PASSWORD\"" >> "$SUPPLICANT_CONF"
+			else
+				echo "	key_mgmt=NONE" >> "$SUPPLICANT_CONF"
+			fi
+			echo "}" >> "$SUPPLICANT_CONF"
 		fi
-		echo "}" >> "$SUPPLICANT_CONF"
+	else
+		if test -f "$MEDIA_DRIVE$WPA_CONF"; then
+			cp "$MEDIA_DRIVE$WPA_CONF" "$SUPPLICANT_CONF"
+			chmod 644 "$SUPPLICANT_CONF"
+		else
+			echo "Invalid wpa_supplicant.conf file specified!"
+			exit 1
+		fi
 	fi
 
 	# Force reload of wifi settings.
 	wpa_cli -i wlan0 reconfigure
-
-	if [[ ! -z "$VERBOSE" ]]; then
-		echo "WiFi reconfigure complete."
-	fi
 }
 
 while [[ "$ONDIE" == "restart" ]]

@@ -58,8 +58,8 @@ Config parameters:
 * `ondie` : If set to anything other than "restart", will cause the kiosk script to exit when the config changes.
 * `repoll` : Time (in seconds) between repolling for new configurations.
 * `ssid` : SSID of the wireless network to connect to.
-* `password` : Password to use for authentication for the SSID.
-
+* `password` : Password to use for authentication for the SSID, if using WPA-PSK.
+* `wpa_conf` : If a more complex wpa_supplicant configuration (wpa_supplicant.conf) is needed, provide the path to the file (relative to the drive in question) here.
 
 ## Compatibility notes
 
